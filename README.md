@@ -1,37 +1,28 @@
-# 一周菜单管家 v3 — OpenAI + Supabase Google Login
+# 一周菜单管家 v4 — 无登录 OpenAI 版本
 
-## What this version adds
+## 功能
 
-- Google login through Supabase Auth
-- User-specific recipe database
-- OpenAI API recipe generation through a secure server route
-- Save generated recipes to the user's account
-- Weekly plan and automatic shopping list
+- 不需要 Google 登录
+- 不需要 Supabase
+- 通过 Vercel 后端安全调用 OpenAI API
+- 用户输入想吃什么，AI 生成菜谱
+- 菜谱保存到浏览器 localStorage
+- 支持编辑、删除、选择菜单
+- 自动生成购物清单
+- 支持中英文切换
 
-## Required environment variables
+## Vercel 环境变量
 
-Set these in Vercel > Project > Settings > Environment Variables:
+只需要添加两个：
 
 ```text
-OPENAI_API_KEY=your_openai_api_key
+OPENAI_API_KEY=你的 OpenAI API Key
 OPENAI_MODEL=gpt-4.1-mini
-NEXT_PUBLIC_SUPABASE_URL=your_supabase_project_url
-NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
 ```
 
-## Supabase setup
+添加后 Redeploy。
 
-1. Create a Supabase project.
-2. Go to SQL Editor.
-3. Run `supabase/schema.sql`.
-4. Go to Authentication > Providers.
-5. Enable Google.
-6. Add your Vercel domain to allowed redirect URLs.
+## 注意
 
-## OpenAI setup
-
-Create an OpenAI API key from the OpenAI platform and add it to Vercel as `OPENAI_API_KEY`.
-
-## Deploy
-
-Upload all files to GitHub. Vercel will redeploy automatically.
+这个版本的数据保存在当前浏览器本地。如果换手机、换浏览器、清除缓存，保存的菜单会消失。
+之后如果需要跨设备同步，再加登录和数据库。

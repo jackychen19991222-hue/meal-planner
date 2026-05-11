@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { supabase, isSupabaseConfigured } from "../lib/supabaseClient";
 
 type Lang = "zh" | "en";
 type Category = "vegetables" | "meat" | "seafood" | "dairy" | "sauces" | "pantry";
@@ -17,7 +16,6 @@ type Ingredient = {
 
 type Recipe = {
   id: string;
-  user_id?: string;
   nameZh: string;
   nameEn: string;
   tagsZh: string[];
@@ -28,18 +26,20 @@ type Recipe = {
   ingredients: Ingredient[];
 };
 
+const storageKey = "meal-planner-recipes-v4";
+const selectedStorageKey = "meal-planner-selected-v4";
+
 const ui = {
   zh: {
     appName: "一周菜单管家",
-    subtitle: "Google 登录后保存你的菜单，用 OpenAI API 真正生成菜谱和购物清单。",
-    signIn: "使用 Google 登录",
-    signOut: "退出登录",
-    notConfigured: "Supabase 还没配置。你仍然可以试用 AI 菜谱，但登录和云端保存暂时不可用。",
+    subtitle: "不用登录，直接用 AI 生成菜谱，保存到你的浏览器菜单库，并自动生成购物清单。",
+    language: "中文 / English",
     aiTitle: "AI 生成菜谱",
     aiInput: "描述你想吃什么",
     aiPlaceholder: "例如：低脂高蛋白鸡胸便当、日式牛肉饭、适合两个人吃的辣味晚餐",
     generate: "生成菜谱",
     generating: "正在生成...",
+    fallbackNotice: "当前未配置 OpenAI API Key，显示备用菜谱。配置 API Key 后会使用真正 AI。",
     saveRecipe: "保存到我的菜单库",
     people: "用餐人数",
     weekPlan: "本周菜单",
@@ -53,6 +53,7 @@ const ui = {
     cancel: "取消",
     addCustom: "自己写菜单",
     search: "搜索菜单...",
+    clearLocal: "清空本地菜单",
     days: ["周一", "周二", "周三", "周四", "周五", "周六", "周日"],
     categories: {
       vegetables: "蔬菜",
@@ -65,15 +66,14 @@ const ui = {
   },
   en: {
     appName: "Weekly Meal Planner",
-    subtitle: "Sign in with Google, save your recipes, and generate recipes using OpenAI API.",
-    signIn: "Sign in with Google",
-    signOut: "Sign out",
-    notConfigured: "Supabase is not configured yet. You can test AI recipes, but login and cloud saving are disabled.",
+    subtitle: "No login required. Generate recipes with AI, save to your browser, and create shopping lists.",
+    language: "English / 中文",
     aiTitle: "AI Recipe Generator",
     aiInput: "Describe what you want to eat",
     aiPlaceholder: "Example: low-fat chicken bento, Japanese beef bowl, spicy dinner for two",
     generate: "Generate Recipe",
     generating: "Generating...",
+    fallbackNotice: "OpenAI API key is not configured. Showing fallback recipe. Add API key to enable true AI.",
     saveRecipe: "Save to My Library",
     people: "People",
     weekPlan: "Weekly Plan",
@@ -87,6 +87,7 @@ const ui = {
     cancel: "Cancel",
     addCustom: "Write My Own Recipe",
     search: "Search recipes...",
+    clearLocal: "Clear Local Recipes",
     days: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
     categories: {
       vegetables: "Vegetables",
@@ -153,44 +154,18 @@ function buildGroceryList(selectedRecipes: Recipe[], people: number, lang: Lang)
   }, {});
 }
 
-function dbToRecipe(row: any): Recipe {
-  return {
-    id: row.id,
-    user_id: row.user_id,
-    nameZh: row.name_zh,
-    nameEn: row.name_en,
-    tagsZh: row.tags_zh || [],
-    tagsEn: row.tags_en || [],
-    servings: row.servings || 2,
-    instructionsZh: row.instructions_zh || "",
-    instructionsEn: row.instructions_en || "",
-    ingredients: row.ingredients || [],
-  };
-}
-
-function recipeToDb(recipe: Recipe, userId: string) {
-  return {
-    id: recipe.id.startsWith("starter") ? crypto.randomUUID() : recipe.id,
-    user_id: userId,
-    name_zh: recipe.nameZh,
-    name_en: recipe.nameEn,
-    tags_zh: recipe.tagsZh,
-    tags_en: recipe.tagsEn,
-    servings: recipe.servings,
-    instructions_zh: recipe.instructionsZh,
-    instructions_en: recipe.instructionsEn,
-    ingredients: recipe.ingredients,
-  };
+function recipeToEditableText(recipe: Recipe) {
+  return JSON.stringify(recipe, null, 2);
 }
 
 export default function Home() {
   const [lang, setLang] = useState<Lang>("zh");
   const [people, setPeople] = useState(2);
-  const [user, setUser] = useState<any>(null);
   const [recipes, setRecipes] = useState<Recipe[]>(starterRecipes);
   const [selectedIds, setSelectedIds] = useState<string[]>(["starter-1", "starter-2"]);
   const [query, setQuery] = useState("适合两个人的高蛋白中式晚餐");
   const [generatedRecipe, setGeneratedRecipe] = useState<Recipe | null>(null);
+  const [usedFallback, setUsedFallback] = useState(false);
   const [loading, setLoading] = useState(false);
   const [checked, setChecked] = useState<Record<string, boolean>>({});
   const [search, setSearch] = useState("");
@@ -199,66 +174,42 @@ export default function Home() {
   const t = ui[lang];
 
   useEffect(() => {
-    if (!supabase) return;
-
-    supabase.auth.getUser().then(({ data }) => {
-      setUser(data.user);
-    });
-
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUser(session?.user || null);
-    });
-
-    return () => sub.subscription.unsubscribe();
+    try {
+      const saved = localStorage.getItem(storageKey);
+      const savedSelected = localStorage.getItem(selectedStorageKey);
+      if (saved) setRecipes(JSON.parse(saved));
+      if (savedSelected) setSelectedIds(JSON.parse(savedSelected));
+    } catch {
+      setRecipes(starterRecipes);
+    }
   }, []);
 
   useEffect(() => {
-    async function loadRecipes() {
-      if (!supabase || !user) {
-        setRecipes(starterRecipes);
-        return;
-      }
+    localStorage.setItem(storageKey, JSON.stringify(recipes));
+  }, [recipes]);
 
-      const { data, error } = await supabase
-        .from("recipes")
-        .select("*")
-        .order("created_at", { ascending: false });
-
-      if (!error && data) {
-        setRecipes(data.map(dbToRecipe));
-      }
-    }
-
-    loadRecipes();
-  }, [user]);
+  useEffect(() => {
+    localStorage.setItem(selectedStorageKey, JSON.stringify(selectedIds));
+  }, [selectedIds]);
 
   const selectedRecipes = recipes.filter((recipe) => selectedIds.includes(recipe.id));
   const grocery = useMemo(() => buildGroceryList(selectedRecipes, people, lang), [selectedRecipes, people, lang]);
 
   const filteredRecipes = recipes.filter((recipe) => {
-    const text = [recipe.nameZh, recipe.nameEn, ...recipe.tagsZh, ...recipe.tagsEn].join(" ").toLowerCase();
+    const text = [
+      recipe.nameZh,
+      recipe.nameEn,
+      ...recipe.tagsZh,
+      ...recipe.tagsEn,
+      ...recipe.ingredients.flatMap((item) => [item.zh, item.en]),
+    ].join(" ").toLowerCase();
     return text.includes(search.toLowerCase());
   });
-
-  async function signInWithGoogle() {
-    if (!supabase) return;
-    await supabase.auth.signInWithOAuth({
-      provider: "google",
-      options: {
-        redirectTo: window.location.origin,
-      },
-    });
-  }
-
-  async function signOut() {
-    if (!supabase) return;
-    await supabase.auth.signOut();
-    setUser(null);
-  }
 
   async function generateRecipe() {
     setLoading(true);
     setGeneratedRecipe(null);
+    setUsedFallback(false);
 
     try {
       const res = await fetch("/api/generate-recipe", {
@@ -270,6 +221,7 @@ export default function Home() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Generate failed");
 
+      setUsedFallback(Boolean(data.usedFallback));
       setGeneratedRecipe({
         id: crypto.randomUUID(),
         ...data.recipe,
@@ -281,38 +233,16 @@ export default function Home() {
     }
   }
 
-  async function saveRecipe(recipe: Recipe) {
-    if (supabase && user) {
-      const payload = recipeToDb(recipe, user.id);
-      const { data, error } = await supabase
-        .from("recipes")
-        .upsert(payload)
-        .select()
-        .single();
-
-      if (error) {
-        alert(error.message);
-        return;
-      }
-
-      const saved = dbToRecipe(data);
-      setRecipes((prev) => {
-        const exists = prev.some((item) => item.id === saved.id);
-        return exists ? prev.map((item) => (item.id === saved.id ? saved : item)) : [saved, ...prev];
-      });
-      setGeneratedRecipe(null);
-      return;
-    }
-
-    setRecipes((prev) => [recipe, ...prev]);
+  function saveRecipe(recipe: Recipe) {
+    setRecipes((prev) => {
+      const exists = prev.some((item) => item.id === recipe.id);
+      return exists ? prev.map((item) => (item.id === recipe.id ? recipe : item)) : [recipe, ...prev];
+    });
+    setSelectedIds((prev) => Array.from(new Set([recipe.id, ...prev])));
     setGeneratedRecipe(null);
   }
 
-  async function deleteRecipe(id: string) {
-    if (supabase && user && !id.startsWith("starter")) {
-      await supabase.from("recipes").delete().eq("id", id);
-    }
-
+  function deleteRecipe(id: string) {
     setRecipes((prev) => prev.filter((recipe) => recipe.id !== id));
     setSelectedIds((prev) => prev.filter((item) => item !== id));
   }
@@ -323,13 +253,14 @@ export default function Home() {
 
   function startEdit(recipe: Recipe) {
     setEditingId(recipe.id);
-    setEditText(JSON.stringify(recipe, null, 2));
+    setEditText(recipeToEditableText(recipe));
   }
 
-  async function saveEdit() {
+  function saveEdit() {
     try {
       const recipe = JSON.parse(editText);
-      await saveRecipe(recipe);
+      if (!recipe.id) recipe.id = crypto.randomUUID();
+      saveRecipe(recipe);
       setEditingId(null);
     } catch {
       alert("JSON 格式不正确");
@@ -350,7 +281,16 @@ export default function Home() {
         { zh: "食材", en: "Ingredient", qty: 1, unitZh: "份", unitEn: "serving", cat: "vegetables" },
       ],
     };
-    startEdit(blank);
+    setEditingId(blank.id);
+    setEditText(recipeToEditableText(blank));
+  }
+
+  function clearLocalRecipes() {
+    if (!confirm("确定清空本地保存的菜单吗？")) return;
+    localStorage.removeItem(storageKey);
+    localStorage.removeItem(selectedStorageKey);
+    setRecipes(starterRecipes);
+    setSelectedIds(["starter-1", "starter-2"]);
   }
 
   return (
@@ -362,34 +302,10 @@ export default function Home() {
             <p className="mt-3 text-neutral-600 max-w-3xl">{t.subtitle}</p>
           </div>
 
-          <div className="flex flex-wrap gap-3">
-            <button onClick={() => setLang(lang === "zh" ? "en" : "zh")} className="rounded-2xl bg-white px-4 py-2 shadow-sm border">
-              {lang === "zh" ? "中文" : "English"}
-            </button>
-
-            {user ? (
-              <button onClick={signOut} className="rounded-2xl bg-black text-white px-4 py-2">
-                {t.signOut}
-              </button>
-            ) : (
-              <button onClick={signInWithGoogle} disabled={!isSupabaseConfigured} className="rounded-2xl bg-black disabled:bg-neutral-400 text-white px-4 py-2">
-                {t.signIn}
-              </button>
-            )}
-          </div>
+          <button onClick={() => setLang(lang === "zh" ? "en" : "zh")} className="rounded-2xl bg-white px-4 py-2 shadow-sm border">
+            {t.language}
+          </button>
         </header>
-
-        {!isSupabaseConfigured && (
-          <div className="rounded-3xl bg-yellow-50 border border-yellow-200 p-4 text-yellow-900">
-            {t.notConfigured}
-          </div>
-        )}
-
-        {user && (
-          <div className="rounded-3xl bg-white border p-4 text-sm text-neutral-600">
-            Logged in as: {user.email}
-          </div>
-        )}
 
         <section className="grid lg:grid-cols-3 gap-6">
           <div className="lg:col-span-2 space-y-6">
@@ -420,21 +336,36 @@ export default function Home() {
                 </button>
               </div>
 
+              {usedFallback && (
+                <div className="mt-4 rounded-2xl bg-yellow-50 border border-yellow-200 p-4 text-sm text-yellow-900">
+                  {t.fallbackNotice}
+                </div>
+              )}
+
               {generatedRecipe && (
                 <div className="mt-5 rounded-3xl bg-neutral-100 p-5">
                   <h3 className="text-xl font-semibold">{lang === "zh" ? generatedRecipe.nameZh : generatedRecipe.nameEn}</h3>
+
                   <div className="mt-3 flex flex-wrap gap-2">
                     {(lang === "zh" ? generatedRecipe.tagsZh : generatedRecipe.tagsEn).map((tag) => (
                       <span key={tag} className="rounded-full bg-white px-3 py-1 text-xs">{tag}</span>
                     ))}
                   </div>
+
                   <p className="mt-3 text-sm text-neutral-600">{lang === "zh" ? generatedRecipe.instructionsZh : generatedRecipe.instructionsEn}</p>
+
                   <div className="mt-4 text-sm text-neutral-700">
                     {generatedRecipe.ingredients.map((item) => `${lang === "zh" ? item.zh : item.en} ${item.qty}${lang === "zh" ? item.unitZh : item.unitEn}`).join(" · ")}
                   </div>
-                  <button onClick={() => saveRecipe(generatedRecipe)} className="mt-4 rounded-2xl bg-black text-white px-4 py-2">
-                    {t.saveRecipe}
-                  </button>
+
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    <button onClick={() => saveRecipe(generatedRecipe)} className="rounded-2xl bg-black text-white px-4 py-2">
+                      {t.saveRecipe}
+                    </button>
+                    <button onClick={() => startEdit(generatedRecipe)} className="rounded-2xl bg-white border px-4 py-2">
+                      {t.edit}
+                    </button>
+                  </div>
                 </div>
               )}
             </div>
@@ -475,9 +406,10 @@ export default function Home() {
             <div className="bg-white rounded-3xl p-6 shadow-sm">
               <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
                 <h2 className="text-2xl font-semibold">{t.library}</h2>
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
                   <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder={t.search} className="rounded-2xl border px-4 py-2" />
                   <button onClick={addBlankRecipe} className="rounded-2xl bg-black text-white px-4 py-2">{t.addCustom}</button>
+                  <button onClick={clearLocalRecipes} className="rounded-2xl bg-red-50 text-red-700 px-4 py-2">{t.clearLocal}</button>
                 </div>
               </div>
 
@@ -499,6 +431,9 @@ export default function Home() {
                           {(lang === "zh" ? recipe.tagsZh : recipe.tagsEn).map((tag) => (
                             <span key={tag} className="rounded-full bg-neutral-100 px-3 py-1 text-xs">{tag}</span>
                           ))}
+                        </div>
+                        <div className="mt-4 text-sm text-neutral-600">
+                          {recipe.ingredients.map((item) => lang === "zh" ? item.zh : item.en).join(" · ")}
                         </div>
                       </button>
 

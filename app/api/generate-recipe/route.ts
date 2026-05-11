@@ -1,25 +1,63 @@
 import { NextResponse } from "next/server";
 
 function fallbackRecipe(query: string) {
-  const q = query || "健康家常晚餐";
+  const q = query?.trim() || "健康家常晚餐";
+  const lower = q.toLowerCase();
+
+  if (lower.includes("牛") || lower.includes("beef")) {
+    return {
+      nameZh: q.includes("牛") ? q : "日式牛肉饭",
+      nameEn: "Japanese Beef Rice Bowl",
+      servings: 2,
+      tagsZh: ["AI生成", "高蛋白", "日式"],
+      tagsEn: ["AI Generated", "Protein", "Japanese"],
+      instructionsZh: "洋葱切丝，牛肉片煎至变色，加入酱油、味淋或少量糖调味，配米饭食用。",
+      instructionsEn: "Slice onion, cook beef until browned, season with soy sauce and mirin or a little sugar, serve over rice.",
+      ingredients: [
+        { zh: "牛肉片", en: "Sliced beef", qty: 300, unitZh: "克", unitEn: "g", cat: "meat" },
+        { zh: "洋葱", en: "Onion", qty: 1, unitZh: "个", unitEn: "pc", cat: "vegetables" },
+        { zh: "米饭", en: "Rice", qty: 2, unitZh: "碗", unitEn: "bowls", cat: "pantry" },
+        { zh: "酱油", en: "Soy sauce", qty: 2, unitZh: "勺", unitEn: "tbsp", cat: "sauces" }
+      ]
+    };
+  }
+
+  if (lower.includes("鸡") || lower.includes("chicken")) {
+    return {
+      nameZh: q.includes("鸡") ? q : "蒜香鸡胸蔬菜碗",
+      nameEn: "Garlic Chicken Vegetable Bowl",
+      servings: 2,
+      tagsZh: ["AI生成", "健康", "高蛋白"],
+      tagsEn: ["AI Generated", "Healthy", "Protein"],
+      instructionsZh: "鸡胸肉切片腌制，煎熟后加入西兰花和蒜末翻炒，搭配米饭或沙拉。",
+      instructionsEn: "Slice and season chicken breast, pan-sear, stir-fry with broccoli and garlic, serve with rice or salad.",
+      ingredients: [
+        { zh: "鸡胸肉", en: "Chicken breast", qty: 350, unitZh: "克", unitEn: "g", cat: "meat" },
+        { zh: "西兰花", en: "Broccoli", qty: 1, unitZh: "颗", unitEn: "head", cat: "vegetables" },
+        { zh: "蒜", en: "Garlic", qty: 3, unitZh: "瓣", unitEn: "cloves", cat: "vegetables" },
+        { zh: "米饭", en: "Rice", qty: 2, unitZh: "碗", unitEn: "bowls", cat: "pantry" }
+      ]
+    };
+  }
+
   return {
-    nameZh: q.includes("鸡") ? q : `${q} 鸡胸蔬菜碗`,
-    nameEn: "AI Chicken Vegetable Bowl",
+    nameZh: q,
+    nameEn: q,
     servings: 2,
-    tagsZh: ["AI生成", "可编辑", "健康"],
-    tagsEn: ["AI Generated", "Editable", "Healthy"],
-    instructionsZh: "将蛋白质食材煎熟，蔬菜焯水或翻炒，搭配主食后调味。你可以保存后继续编辑。",
-    instructionsEn: "Cook the protein, prepare vegetables, serve with a staple, and season to taste. You can edit after saving.",
+    tagsZh: ["AI生成", "可编辑"],
+    tagsEn: ["AI Generated", "Editable"],
+    instructionsZh: "这是备用生成菜谱。你可以保存后点击编辑，修改食材、数量和做法。",
+    instructionsEn: "This is a fallback generated recipe. Save it and edit ingredients, quantities, and instructions.",
     ingredients: [
-      { zh: "鸡胸肉", en: "Chicken breast", qty: 300, unitZh: "克", unitEn: "g", cat: "meat" },
-      { zh: "西兰花", en: "Broccoli", qty: 1, unitZh: "颗", unitEn: "head", cat: "vegetables" },
-      { zh: "米饭", en: "Rice", qty: 2, unitZh: "碗", unitEn: "bowls", cat: "pantry" },
-      { zh: "酱油", en: "Soy sauce", qty: 2, unitZh: "勺", unitEn: "tbsp", cat: "sauces" }
+      { zh: "蛋白质食材", en: "Protein", qty: 300, unitZh: "克", unitEn: "g", cat: "meat" },
+      { zh: "蔬菜", en: "Vegetables", qty: 2, unitZh: "份", unitEn: "servings", cat: "vegetables" },
+      { zh: "主食", en: "Staple", qty: 2, unitZh: "份", unitEn: "servings", cat: "pantry" },
+      { zh: "调料", en: "Seasoning", qty: 2, unitZh: "勺", unitEn: "tbsp", cat: "sauces" }
     ]
   };
 }
 
-function tryParseJson(text: string) {
+function parseJson(text: string) {
   const cleaned = text.replace(/```json|```/g, "").trim();
   return JSON.parse(cleaned);
 }
@@ -32,24 +70,25 @@ export async function POST(request: Request) {
       return NextResponse.json({
         recipe: fallbackRecipe(query),
         usedFallback: true,
-        message: "OPENAI_API_KEY is missing. Returned fallback recipe."
+        message: "Missing OPENAI_API_KEY. Returned fallback recipe."
       });
     }
 
     const prompt = `
-You are a bilingual recipe generator for a weekly meal planning app.
+You are a bilingual recipe generator for a meal planning app.
 User language preference: ${language === "en" ? "English" : "Simplified Chinese"}.
-People: ${people || 2}.
-User request: ${query}.
+Number of people: ${people || 2}.
+User request: ${query || "healthy dinner"}.
 
-Return ONLY valid JSON. No markdown.
-Use this schema:
+Return ONLY valid JSON. No markdown. No explanation.
+
+Schema:
 {
-  "nameZh": "Chinese recipe name",
+  "nameZh": "中文菜名",
   "nameEn": "English recipe name",
   "servings": 2,
-  "tagsZh": ["标签1", "标签2"],
-  "tagsEn": ["tag1", "tag2"],
+  "tagsZh": ["标签"],
+  "tagsEn": ["tag"],
   "instructionsZh": "简短中文做法",
   "instructionsEn": "short English instructions",
   "ingredients": [
@@ -59,35 +98,36 @@ Use this schema:
       "qty": 1,
       "unitZh": "克/个/勺/碗/份",
       "unitEn": "g/pc/tbsp/bowl/serving",
-      "cat": "vegetables | meat | seafood | dairy | sauces | pantry"
+      "cat": "vegetables"
     }
   ]
 }
 
 Rules:
-- Generate practical home-cooking recipes.
-- Keep ingredients easy to buy in US grocery stores.
+- cat must be one of: vegetables, meat, seafood, dairy, sauces, pantry.
+- Generate practical home cooking recipes.
+- Use common grocery ingredients in the US.
 - Include 4 to 8 ingredients.
-- The cat field must be one of: vegetables, meat, seafood, dairy, sauces, pantry.
+- Set servings to 2 by default unless user clearly asks otherwise.
 `;
 
     const response = await fetch("https://api.openai.com/v1/responses", {
       method: "POST",
       headers: {
-        "Authorization": `Bearer ${process.env.OPENAI_API_KEY}`,
-        "Content-Type": "application/json"
+        Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+        "Content-Type": "application/json",
       },
       body: JSON.stringify({
         model: process.env.OPENAI_MODEL || "gpt-4.1-mini",
         input: prompt,
-        temperature: 0.7
-      })
+        temperature: 0.7,
+      }),
     });
 
     if (!response.ok) {
-      const errorText = await response.text();
+      const detail = await response.text();
       return NextResponse.json(
-        { error: "OpenAI request failed", detail: errorText },
+        { error: "OpenAI request failed", detail },
         { status: 500 }
       );
     }
@@ -100,12 +140,9 @@ Rules:
         ?.join("") ||
       "";
 
-    const recipe = tryParseJson(outputText);
+    const recipe = parseJson(outputText);
 
-    return NextResponse.json({
-      recipe,
-      usedFallback: false
-    });
+    return NextResponse.json({ recipe, usedFallback: false });
   } catch (error: any) {
     return NextResponse.json(
       { error: "Failed to generate recipe", detail: error?.message || String(error) },
