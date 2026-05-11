@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { supabase, isSupabaseConfigured } from "@/lib/supabaseClient";
+import { supabase, isSupabaseConfigured } from "../lib/supabaseClient";
 
 type Lang = "zh" | "en";
 type Category = "vegetables" | "meat" | "seafood" | "dairy" | "sauces" | "pantry";
