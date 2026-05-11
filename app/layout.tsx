@@ -1,9 +1,8 @@
-
 import "./globals.css";
 
 export const metadata = {
-  title: "Meal Planner",
-  description: "Weekly meal planner",
+  title: "一周菜单管家",
+  description: "AI weekly meal planner",
 };
 
 export default function RootLayout({
