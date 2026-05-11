@@ -1,8 +1,10 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { supabase, isSupabaseConfigured } from "@/lib/supabaseClient";
 
 type Lang = "zh" | "en";
+type Category = "vegetables" | "meat" | "seafood" | "dairy" | "sauces" | "pantry";
 
 type Ingredient = {
   zh: string;
@@ -10,38 +12,47 @@ type Ingredient = {
   qty: number;
   unitZh: string;
   unitEn: string;
-  cat: "vegetables" | "meat" | "seafood" | "dairy" | "sauces" | "pantry";
+  cat: Category;
 };
 
 type Recipe = {
-  id: number;
+  id: string;
+  user_id?: string;
   nameZh: string;
   nameEn: string;
   tagsZh: string[];
   tagsEn: string[];
   servings: number;
-  scoreTags: string[];
+  instructionsZh: string;
+  instructionsEn: string;
   ingredients: Ingredient[];
 };
 
-const text = {
+const ui = {
   zh: {
     appName: "一周菜单管家",
-    subtitle: "AI 推荐一周菜单，自动合并购物清单，适合家庭备餐。",
-    aiTitle: "AI 推荐菜单",
-    preference: "饮食偏好",
-    avoid: "不想吃 / 过敏食材",
+    subtitle: "Google 登录后保存你的菜单，用 OpenAI API 真正生成菜谱和购物清单。",
+    signIn: "使用 Google 登录",
+    signOut: "退出登录",
+    notConfigured: "Supabase 还没配置。你仍然可以试用 AI 菜谱，但登录和云端保存暂时不可用。",
+    aiTitle: "AI 生成菜谱",
+    aiInput: "描述你想吃什么",
+    aiPlaceholder: "例如：低脂高蛋白鸡胸便当、日式牛肉饭、适合两个人吃的辣味晚餐",
+    generate: "生成菜谱",
+    generating: "正在生成...",
+    saveRecipe: "保存到我的菜单库",
     people: "用餐人数",
-    generate: "AI 推荐一周菜单",
-    selected: "已选择",
-    week: "本周菜单",
-    recipes: "菜谱库",
+    weekPlan: "本周菜单",
+    library: "我的菜单库",
     shopping: "购物清单",
-    smartNote: "推荐理由",
-    note: "已根据你的偏好优先选择食材重复率高、做法简单、适合一周备餐的菜。",
-    placeholderPreference: "例如：健康、快手、中餐、日式、高蛋白",
-    placeholderAvoid: "例如：牛肉、海鲜、鸡蛋",
+    selected: "已选择",
     servings: "人份",
+    edit: "编辑",
+    delete: "删除",
+    save: "保存",
+    cancel: "取消",
+    addCustom: "自己写菜单",
+    search: "搜索菜单...",
     days: ["周一", "周二", "周三", "周四", "周五", "周六", "周日"],
     categories: {
       vegetables: "蔬菜",
@@ -54,21 +65,28 @@ const text = {
   },
   en: {
     appName: "Weekly Meal Planner",
-    subtitle: "AI-recommended weekly meals with an automatic grocery list.",
-    aiTitle: "AI Meal Recommendation",
-    preference: "Preference",
-    avoid: "Avoid / Allergies",
+    subtitle: "Sign in with Google, save your recipes, and generate recipes using OpenAI API.",
+    signIn: "Sign in with Google",
+    signOut: "Sign out",
+    notConfigured: "Supabase is not configured yet. You can test AI recipes, but login and cloud saving are disabled.",
+    aiTitle: "AI Recipe Generator",
+    aiInput: "Describe what you want to eat",
+    aiPlaceholder: "Example: low-fat chicken bento, Japanese beef bowl, spicy dinner for two",
+    generate: "Generate Recipe",
+    generating: "Generating...",
+    saveRecipe: "Save to My Library",
     people: "People",
-    generate: "Generate AI Weekly Plan",
-    selected: "Selected",
-    week: "Weekly Plan",
-    recipes: "Recipe Library",
+    weekPlan: "Weekly Plan",
+    library: "My Recipe Library",
     shopping: "Shopping List",
-    smartNote: "Recommendation Reason",
-    note: "The plan prioritizes simple recipes, reusable ingredients, and balanced weekly prep.",
-    placeholderPreference: "Example: healthy, quick, Chinese, Japanese, high protein",
-    placeholderAvoid: "Example: beef, seafood, eggs",
+    selected: "Selected",
     servings: "servings",
+    edit: "Edit",
+    delete: "Delete",
+    save: "Save",
+    cancel: "Cancel",
+    addCustom: "Write My Own Recipe",
+    search: "Search recipes...",
     days: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
     categories: {
       vegetables: "Vegetables",
@@ -81,15 +99,16 @@ const text = {
   },
 };
 
-const recipes: Recipe[] = [
+const starterRecipes: Recipe[] = [
   {
-    id: 1,
+    id: "starter-1",
     nameZh: "番茄炒蛋",
     nameEn: "Tomato Scrambled Eggs",
-    tagsZh: ["家常菜", "快手", "中餐"],
-    tagsEn: ["Chinese", "Quick", "Home"],
+    tagsZh: ["家常菜", "快手"],
+    tagsEn: ["Home", "Quick"],
     servings: 2,
-    scoreTags: ["快手", "中餐", "健康", "quick", "chinese", "healthy"],
+    instructionsZh: "番茄切块，鸡蛋打散，先炒蛋再炒番茄，合并调味。",
+    instructionsEn: "Cut tomatoes, beat eggs, cook eggs first, then tomatoes, combine and season.",
     ingredients: [
       { zh: "番茄", en: "Tomatoes", qty: 2, unitZh: "个", unitEn: "pcs", cat: "vegetables" },
       { zh: "鸡蛋", en: "Eggs", qty: 3, unitZh: "个", unitEn: "pcs", cat: "dairy" },
@@ -97,73 +116,18 @@ const recipes: Recipe[] = [
     ],
   },
   {
-    id: 2,
+    id: "starter-2",
     nameZh: "照烧鸡腿饭",
     nameEn: "Teriyaki Chicken Bowl",
-    tagsZh: ["日式", "便当", "高蛋白"],
-    tagsEn: ["Japanese", "Bento", "Protein"],
+    tagsZh: ["日式", "高蛋白"],
+    tagsEn: ["Japanese", "Protein"],
     servings: 2,
-    scoreTags: ["日式", "高蛋白", "快手", "japanese", "protein", "quick"],
+    instructionsZh: "鸡腿肉煎熟，加入照烧汁收汁，搭配米饭。",
+    instructionsEn: "Pan-sear chicken thigh, reduce with teriyaki sauce, serve with rice.",
     ingredients: [
       { zh: "鸡腿肉", en: "Chicken thigh", qty: 400, unitZh: "克", unitEn: "g", cat: "meat" },
       { zh: "米饭", en: "Rice", qty: 2, unitZh: "碗", unitEn: "bowls", cat: "pantry" },
       { zh: "照烧汁", en: "Teriyaki sauce", qty: 3, unitZh: "勺", unitEn: "tbsp", cat: "sauces" },
-    ],
-  },
-  {
-    id: 3,
-    nameZh: "三文鱼牛油果沙拉",
-    nameEn: "Salmon Avocado Salad",
-    tagsZh: ["健康", "低碳水", "轻食"],
-    tagsEn: ["Healthy", "Low-carb", "Light"],
-    servings: 2,
-    scoreTags: ["健康", "低碳水", "高蛋白", "healthy", "low carb", "protein"],
-    ingredients: [
-      { zh: "三文鱼", en: "Salmon", qty: 300, unitZh: "克", unitEn: "g", cat: "seafood" },
-      { zh: "牛油果", en: "Avocado", qty: 1, unitZh: "个", unitEn: "pc", cat: "vegetables" },
-      { zh: "生菜", en: "Lettuce", qty: 1, unitZh: "包", unitEn: "bag", cat: "vegetables" },
-    ],
-  },
-  {
-    id: 4,
-    nameZh: "牛肉乌冬面",
-    nameEn: "Beef Udon",
-    tagsZh: ["日式", "热汤", "简单"],
-    tagsEn: ["Japanese", "Noodles", "Easy"],
-    servings: 2,
-    scoreTags: ["日式", "简单", "快手", "japanese", "easy", "quick"],
-    ingredients: [
-      { zh: "牛肉片", en: "Sliced beef", qty: 250, unitZh: "克", unitEn: "g", cat: "meat" },
-      { zh: "乌冬面", en: "Udon", qty: 2, unitZh: "包", unitEn: "packs", cat: "pantry" },
-      { zh: "青菜", en: "Greens", qty: 1, unitZh: "把", unitEn: "bunch", cat: "vegetables" },
-    ],
-  },
-  {
-    id: 5,
-    nameZh: "蒜蓉西兰花鸡胸",
-    nameEn: "Garlic Broccoli Chicken Breast",
-    tagsZh: ["健康", "高蛋白", "减脂"],
-    tagsEn: ["Healthy", "Protein", "Lean"],
-    servings: 2,
-    scoreTags: ["健康", "高蛋白", "减脂", "healthy", "protein", "lean"],
-    ingredients: [
-      { zh: "鸡胸肉", en: "Chicken breast", qty: 350, unitZh: "克", unitEn: "g", cat: "meat" },
-      { zh: "西兰花", en: "Broccoli", qty: 1, unitZh: "颗", unitEn: "head", cat: "vegetables" },
-      { zh: "蒜", en: "Garlic", qty: 3, unitZh: "瓣", unitEn: "cloves", cat: "vegetables" },
-    ],
-  },
-  {
-    id: 6,
-    nameZh: "虾仁炒饭",
-    nameEn: "Shrimp Fried Rice",
-    tagsZh: ["快手", "中餐", "剩饭友好"],
-    tagsEn: ["Quick", "Chinese", "Rice"],
-    servings: 2,
-    scoreTags: ["快手", "中餐", "简单", "quick", "chinese", "easy"],
-    ingredients: [
-      { zh: "虾仁", en: "Shrimp", qty: 250, unitZh: "克", unitEn: "g", cat: "seafood" },
-      { zh: "米饭", en: "Rice", qty: 2, unitZh: "碗", unitEn: "bowls", cat: "pantry" },
-      { zh: "鸡蛋", en: "Eggs", qty: 2, unitZh: "个", unitEn: "pcs", cat: "dairy" },
     ],
   },
 ];
@@ -189,63 +153,205 @@ function buildGroceryList(selectedRecipes: Recipe[], people: number, lang: Lang)
   }, {});
 }
 
-function recommendRecipes(preference: string, avoid: string) {
-  const preferenceWords = preference.toLowerCase().split(/[,\s，、]+/).filter(Boolean);
-  const avoidWords = avoid.toLowerCase().split(/[,\s，、]+/).filter(Boolean);
+function dbToRecipe(row: any): Recipe {
+  return {
+    id: row.id,
+    user_id: row.user_id,
+    nameZh: row.name_zh,
+    nameEn: row.name_en,
+    tagsZh: row.tags_zh || [],
+    tagsEn: row.tags_en || [],
+    servings: row.servings || 2,
+    instructionsZh: row.instructions_zh || "",
+    instructionsEn: row.instructions_en || "",
+    ingredients: row.ingredients || [],
+  };
+}
 
-  const safeRecipes = recipes.filter((recipe) => {
-    const textForRecipe = [
-      recipe.nameZh,
-      recipe.nameEn,
-      ...recipe.tagsZh,
-      ...recipe.tagsEn,
-      ...recipe.ingredients.flatMap((item) => [item.zh, item.en]),
-    ].join(" ").toLowerCase();
-
-    return !avoidWords.some((word) => textForRecipe.includes(word));
-  });
-
-  const scored = safeRecipes.map((recipe) => {
-    let score = 0;
-    const searchable = [recipe.nameZh, recipe.nameEn, ...recipe.scoreTags, ...recipe.tagsZh, ...recipe.tagsEn].join(" ").toLowerCase();
-
-    preferenceWords.forEach((word) => {
-      if (searchable.includes(word)) score += 3;
-    });
-
-    if (recipe.tagsZh.includes("快手") || recipe.tagsEn.includes("Quick")) score += 1;
-    if (recipe.tagsZh.includes("健康") || recipe.tagsEn.includes("Healthy")) score += 1;
-
-    return { recipe, score };
-  });
-
-  return scored
-    .sort((a, b) => b.score - a.score || a.recipe.id - b.recipe.id)
-    .map((item) => item.recipe)
-    .slice(0, 4);
+function recipeToDb(recipe: Recipe, userId: string) {
+  return {
+    id: recipe.id.startsWith("starter") ? crypto.randomUUID() : recipe.id,
+    user_id: userId,
+    name_zh: recipe.nameZh,
+    name_en: recipe.nameEn,
+    tags_zh: recipe.tagsZh,
+    tags_en: recipe.tagsEn,
+    servings: recipe.servings,
+    instructions_zh: recipe.instructionsZh,
+    instructions_en: recipe.instructionsEn,
+    ingredients: recipe.ingredients,
+  };
 }
 
 export default function Home() {
   const [lang, setLang] = useState<Lang>("zh");
   const [people, setPeople] = useState(2);
-  const [preference, setPreference] = useState("健康 快手 中餐 高蛋白");
-  const [avoid, setAvoid] = useState("");
-  const [selectedIds, setSelectedIds] = useState<number[]>([1, 2, 5, 6]);
+  const [user, setUser] = useState<any>(null);
+  const [recipes, setRecipes] = useState<Recipe[]>(starterRecipes);
+  const [selectedIds, setSelectedIds] = useState<string[]>(["starter-1", "starter-2"]);
+  const [query, setQuery] = useState("适合两个人的高蛋白中式晚餐");
+  const [generatedRecipe, setGeneratedRecipe] = useState<Recipe | null>(null);
+  const [loading, setLoading] = useState(false);
   const [checked, setChecked] = useState<Record<string, boolean>>({});
-  const t = text[lang];
+  const [search, setSearch] = useState("");
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editText, setEditText] = useState("");
+  const t = ui[lang];
+
+  useEffect(() => {
+    if (!supabase) return;
+
+    supabase.auth.getUser().then(({ data }) => {
+      setUser(data.user);
+    });
+
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user || null);
+    });
+
+    return () => sub.subscription.unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    async function loadRecipes() {
+      if (!supabase || !user) {
+        setRecipes(starterRecipes);
+        return;
+      }
+
+      const { data, error } = await supabase
+        .from("recipes")
+        .select("*")
+        .order("created_at", { ascending: false });
+
+      if (!error && data) {
+        setRecipes(data.map(dbToRecipe));
+      }
+    }
+
+    loadRecipes();
+  }, [user]);
 
   const selectedRecipes = recipes.filter((recipe) => selectedIds.includes(recipe.id));
   const grocery = useMemo(() => buildGroceryList(selectedRecipes, people, lang), [selectedRecipes, people, lang]);
 
-  const handleAIRecommend = () => {
-    const result = recommendRecipes(preference, avoid);
-    setSelectedIds(result.map((recipe) => recipe.id));
-    setChecked({});
-  };
+  const filteredRecipes = recipes.filter((recipe) => {
+    const text = [recipe.nameZh, recipe.nameEn, ...recipe.tagsZh, ...recipe.tagsEn].join(" ").toLowerCase();
+    return text.includes(search.toLowerCase());
+  });
 
-  const toggleRecipe = (id: number) => {
+  async function signInWithGoogle() {
+    if (!supabase) return;
+    await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: {
+        redirectTo: window.location.origin,
+      },
+    });
+  }
+
+  async function signOut() {
+    if (!supabase) return;
+    await supabase.auth.signOut();
+    setUser(null);
+  }
+
+  async function generateRecipe() {
+    setLoading(true);
+    setGeneratedRecipe(null);
+
+    try {
+      const res = await fetch("/api/generate-recipe", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query, people, language: lang }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Generate failed");
+
+      setGeneratedRecipe({
+        id: crypto.randomUUID(),
+        ...data.recipe,
+      });
+    } catch (error: any) {
+      alert(error.message || "生成失败");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function saveRecipe(recipe: Recipe) {
+    if (supabase && user) {
+      const payload = recipeToDb(recipe, user.id);
+      const { data, error } = await supabase
+        .from("recipes")
+        .upsert(payload)
+        .select()
+        .single();
+
+      if (error) {
+        alert(error.message);
+        return;
+      }
+
+      const saved = dbToRecipe(data);
+      setRecipes((prev) => {
+        const exists = prev.some((item) => item.id === saved.id);
+        return exists ? prev.map((item) => (item.id === saved.id ? saved : item)) : [saved, ...prev];
+      });
+      setGeneratedRecipe(null);
+      return;
+    }
+
+    setRecipes((prev) => [recipe, ...prev]);
+    setGeneratedRecipe(null);
+  }
+
+  async function deleteRecipe(id: string) {
+    if (supabase && user && !id.startsWith("starter")) {
+      await supabase.from("recipes").delete().eq("id", id);
+    }
+
+    setRecipes((prev) => prev.filter((recipe) => recipe.id !== id));
+    setSelectedIds((prev) => prev.filter((item) => item !== id));
+  }
+
+  function toggleRecipe(id: string) {
     setSelectedIds((prev) => prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]);
-  };
+  }
+
+  function startEdit(recipe: Recipe) {
+    setEditingId(recipe.id);
+    setEditText(JSON.stringify(recipe, null, 2));
+  }
+
+  async function saveEdit() {
+    try {
+      const recipe = JSON.parse(editText);
+      await saveRecipe(recipe);
+      setEditingId(null);
+    } catch {
+      alert("JSON 格式不正确");
+    }
+  }
+
+  function addBlankRecipe() {
+    const blank: Recipe = {
+      id: crypto.randomUUID(),
+      nameZh: "我的新菜单",
+      nameEn: "My New Recipe",
+      tagsZh: ["自定义"],
+      tagsEn: ["Custom"],
+      servings: 2,
+      instructionsZh: "写下做法。",
+      instructionsEn: "Write instructions.",
+      ingredients: [
+        { zh: "食材", en: "Ingredient", qty: 1, unitZh: "份", unitEn: "serving", cat: "vegetables" },
+      ],
+    };
+    startEdit(blank);
+  }
 
   return (
     <main className="min-h-screen bg-neutral-100 p-4 md:p-8 text-neutral-950">
@@ -253,67 +359,104 @@ export default function Home() {
         <header className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
           <div>
             <h1 className="text-4xl md:text-5xl font-bold tracking-tight">{t.appName}</h1>
-            <p className="mt-3 text-neutral-600">{t.subtitle}</p>
+            <p className="mt-3 text-neutral-600 max-w-3xl">{t.subtitle}</p>
           </div>
-          <button
-            onClick={() => setLang(lang === "zh" ? "en" : "zh")}
-            className="rounded-2xl bg-white px-4 py-2 shadow-sm border"
-          >
-            {lang === "zh" ? "中文 / English" : "English / 中文"}
-          </button>
+
+          <div className="flex flex-wrap gap-3">
+            <button onClick={() => setLang(lang === "zh" ? "en" : "zh")} className="rounded-2xl bg-white px-4 py-2 shadow-sm border">
+              {lang === "zh" ? "中文" : "English"}
+            </button>
+
+            {user ? (
+              <button onClick={signOut} className="rounded-2xl bg-black text-white px-4 py-2">
+                {t.signOut}
+              </button>
+            ) : (
+              <button onClick={signInWithGoogle} disabled={!isSupabaseConfigured} className="rounded-2xl bg-black disabled:bg-neutral-400 text-white px-4 py-2">
+                {t.signIn}
+              </button>
+            )}
+          </div>
         </header>
+
+        {!isSupabaseConfigured && (
+          <div className="rounded-3xl bg-yellow-50 border border-yellow-200 p-4 text-yellow-900">
+            {t.notConfigured}
+          </div>
+        )}
+
+        {user && (
+          <div className="rounded-3xl bg-white border p-4 text-sm text-neutral-600">
+            Logged in as: {user.email}
+          </div>
+        )}
 
         <section className="grid lg:grid-cols-3 gap-6">
           <div className="lg:col-span-2 space-y-6">
             <div className="bg-white rounded-3xl p-6 shadow-sm">
               <h2 className="text-2xl font-semibold">✨ {t.aiTitle}</h2>
 
-              <div className="grid md:grid-cols-3 gap-4 mt-5">
-                <label className="block">
-                  <span className="text-sm text-neutral-600">{t.preference}</span>
-                  <input
-                    value={preference}
-                    onChange={(e) => setPreference(e.target.value)}
-                    placeholder={t.placeholderPreference}
-                    className="mt-2 w-full rounded-2xl border px-4 py-3 outline-none focus:ring-2 focus:ring-black"
-                  />
-                </label>
+              <label className="block mt-5">
+                <span className="text-sm text-neutral-600">{t.aiInput}</span>
+                <textarea
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder={t.aiPlaceholder}
+                  rows={3}
+                  className="mt-2 w-full rounded-2xl border px-4 py-3 outline-none focus:ring-2 focus:ring-black"
+                />
+              </label>
 
-                <label className="block">
-                  <span className="text-sm text-neutral-600">{t.avoid}</span>
-                  <input
-                    value={avoid}
-                    onChange={(e) => setAvoid(e.target.value)}
-                    placeholder={t.placeholderAvoid}
-                    className="mt-2 w-full rounded-2xl border px-4 py-3 outline-none focus:ring-2 focus:ring-black"
-                  />
-                </label>
+              <div className="mt-4 flex flex-wrap items-center gap-3">
+                <div className="rounded-2xl bg-neutral-100 px-4 py-3 flex items-center gap-3">
+                  <span>{t.people}</span>
+                  <button onClick={() => setPeople(Math.max(1, people - 1))}>−</button>
+                  <strong>{people}</strong>
+                  <button onClick={() => setPeople(people + 1)}>+</button>
+                </div>
 
-                <label className="block">
-                  <span className="text-sm text-neutral-600">{t.people}</span>
-                  <div className="mt-2 flex items-center justify-between rounded-2xl border px-4 py-3">
-                    <button onClick={() => setPeople(Math.max(1, people - 1))} className="text-xl">−</button>
-                    <strong>{people}</strong>
-                    <button onClick={() => setPeople(people + 1)} className="text-xl">+</button>
+                <button onClick={generateRecipe} disabled={loading} className="rounded-2xl bg-black text-white px-6 py-3 disabled:bg-neutral-400">
+                  {loading ? t.generating : t.generate}
+                </button>
+              </div>
+
+              {generatedRecipe && (
+                <div className="mt-5 rounded-3xl bg-neutral-100 p-5">
+                  <h3 className="text-xl font-semibold">{lang === "zh" ? generatedRecipe.nameZh : generatedRecipe.nameEn}</h3>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {(lang === "zh" ? generatedRecipe.tagsZh : generatedRecipe.tagsEn).map((tag) => (
+                      <span key={tag} className="rounded-full bg-white px-3 py-1 text-xs">{tag}</span>
+                    ))}
                   </div>
-                </label>
-              </div>
-
-              <button
-                onClick={handleAIRecommend}
-                className="mt-5 w-full md:w-auto rounded-2xl bg-black text-white px-6 py-3 font-medium hover:bg-neutral-800"
-              >
-                {t.generate}
-              </button>
-
-              <div className="mt-4 rounded-2xl bg-neutral-100 p-4">
-                <div className="font-semibold">{t.smartNote}</div>
-                <p className="mt-1 text-sm text-neutral-600">{t.note}</p>
-              </div>
+                  <p className="mt-3 text-sm text-neutral-600">{lang === "zh" ? generatedRecipe.instructionsZh : generatedRecipe.instructionsEn}</p>
+                  <div className="mt-4 text-sm text-neutral-700">
+                    {generatedRecipe.ingredients.map((item) => `${lang === "zh" ? item.zh : item.en} ${item.qty}${lang === "zh" ? item.unitZh : item.unitEn}`).join(" · ")}
+                  </div>
+                  <button onClick={() => saveRecipe(generatedRecipe)} className="mt-4 rounded-2xl bg-black text-white px-4 py-2">
+                    {t.saveRecipe}
+                  </button>
+                </div>
+              )}
             </div>
 
+            {editingId && (
+              <div className="bg-white rounded-3xl p-6 shadow-sm">
+                <h2 className="text-2xl font-semibold mb-4">{t.edit}</h2>
+                <textarea
+                  value={editText}
+                  onChange={(e) => setEditText(e.target.value)}
+                  rows={16}
+                  className="w-full rounded-2xl border p-4 font-mono text-sm"
+                />
+                <div className="mt-4 flex gap-2">
+                  <button onClick={saveEdit} className="rounded-2xl bg-black text-white px-4 py-2">{t.save}</button>
+                  <button onClick={() => setEditingId(null)} className="rounded-2xl bg-white border px-4 py-2">{t.cancel}</button>
+                </div>
+              </div>
+            )}
+
             <div className="bg-white rounded-3xl p-6 shadow-sm">
-              <h2 className="text-2xl font-semibold">{t.week}</h2>
+              <h2 className="text-2xl font-semibold">{t.weekPlan}</h2>
               <div className="grid md:grid-cols-7 gap-3 mt-5">
                 {t.days.map((day, index) => {
                   const recipe = selectedRecipes[index % Math.max(selectedRecipes.length, 1)];
@@ -330,31 +473,40 @@ export default function Home() {
             </div>
 
             <div className="bg-white rounded-3xl p-6 shadow-sm">
-              <h2 className="text-2xl font-semibold">{t.recipes}</h2>
+              <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+                <h2 className="text-2xl font-semibold">{t.library}</h2>
+                <div className="flex gap-2">
+                  <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder={t.search} className="rounded-2xl border px-4 py-2" />
+                  <button onClick={addBlankRecipe} className="rounded-2xl bg-black text-white px-4 py-2">{t.addCustom}</button>
+                </div>
+              </div>
+
               <div className="grid md:grid-cols-2 gap-4 mt-5">
-                {recipes.map((recipe) => {
+                {filteredRecipes.map((recipe) => {
                   const isSelected = selectedIds.includes(recipe.id);
+
                   return (
-                    <button
-                      key={recipe.id}
-                      onClick={() => toggleRecipe(recipe.id)}
-                      className={`text-left rounded-3xl border p-5 transition hover:-translate-y-0.5 ${
-                        isSelected ? "border-black ring-2 ring-black" : "border-neutral-200"
-                      }`}
-                    >
-                      <div className="flex justify-between gap-3">
-                        <div>
-                          <h3 className="font-semibold text-lg">{lang === "zh" ? recipe.nameZh : recipe.nameEn}</h3>
-                          <p className="text-sm text-neutral-500 mt-1">{recipe.servings} {t.servings}</p>
+                    <div key={recipe.id} className={`rounded-3xl border p-5 ${isSelected ? "border-black ring-2 ring-black" : "border-neutral-200"}`}>
+                      <button onClick={() => toggleRecipe(recipe.id)} className="w-full text-left">
+                        <div className="flex justify-between gap-3">
+                          <div>
+                            <h3 className="font-semibold text-lg">{lang === "zh" ? recipe.nameZh : recipe.nameEn}</h3>
+                            <p className="text-sm text-neutral-500 mt-1">{recipe.servings} {t.servings}</p>
+                          </div>
+                          <div>{isSelected ? "✓" : "○"}</div>
                         </div>
-                        <div>{isSelected ? "✓" : "○"}</div>
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          {(lang === "zh" ? recipe.tagsZh : recipe.tagsEn).map((tag) => (
+                            <span key={tag} className="rounded-full bg-neutral-100 px-3 py-1 text-xs">{tag}</span>
+                          ))}
+                        </div>
+                      </button>
+
+                      <div className="mt-4 flex gap-2">
+                        <button onClick={() => startEdit(recipe)} className="rounded-2xl bg-neutral-100 px-4 py-2 text-sm">{t.edit}</button>
+                        <button onClick={() => deleteRecipe(recipe.id)} className="rounded-2xl bg-red-50 text-red-700 px-4 py-2 text-sm">{t.delete}</button>
                       </div>
-                      <div className="flex flex-wrap gap-2 mt-3">
-                        {(lang === "zh" ? recipe.tagsZh : recipe.tagsEn).map((tag) => (
-                          <span key={tag} className="rounded-full bg-neutral-100 px-3 py-1 text-xs">{tag}</span>
-                        ))}
-                      </div>
-                    </button>
+                    </div>
                   );
                 })}
               </div>

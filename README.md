@@ -1,17 +1,37 @@
-# Meal Planner AI v1
+# 一周菜单管家 v3 — OpenAI + Supabase Google Login
 
-AI 推荐菜单 v1：无需 API Key，可直接部署到 Vercel。
+## What this version adds
 
-## 功能
+- Google login through Supabase Auth
+- User-specific recipe database
+- OpenAI API recipe generation through a secure server route
+- Save generated recipes to the user's account
+- Weekly plan and automatic shopping list
 
-- 中文优先
-- 中英文切换
-- 人数调整
-- AI 推荐菜单按钮
-- 根据偏好和避免食材推荐菜谱
-- 自动生成购物清单
-- 购物清单勾选
+## Required environment variables
 
-## 部署
+Set these in Vercel > Project > Settings > Environment Variables:
 
-上传到 GitHub 后，在 Vercel 重新部署。
+```text
+OPENAI_API_KEY=your_openai_api_key
+OPENAI_MODEL=gpt-4.1-mini
+NEXT_PUBLIC_SUPABASE_URL=your_supabase_project_url
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
+```
+
+## Supabase setup
+
+1. Create a Supabase project.
+2. Go to SQL Editor.
+3. Run `supabase/schema.sql`.
+4. Go to Authentication > Providers.
+5. Enable Google.
+6. Add your Vercel domain to allowed redirect URLs.
+
+## OpenAI setup
+
+Create an OpenAI API key from the OpenAI platform and add it to Vercel as `OPENAI_API_KEY`.
+
+## Deploy
+
+Upload all files to GitHub. Vercel will redeploy automatically.

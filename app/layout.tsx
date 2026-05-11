@@ -2,7 +2,7 @@ import "./globals.css";
 
 export const metadata = {
   title: "一周菜单管家",
-  description: "AI weekly meal planner",
+  description: "AI recipe generator with Google login",
 };
 
 export default function RootLayout({
